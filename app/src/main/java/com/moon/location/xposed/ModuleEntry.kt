@@ -20,7 +20,6 @@ class ModuleEntry : XposedModule() {
 
     @Volatile private var systemState: SpoofState? = null
     @Volatile private var systemPump: Pump? = null
-    @Volatile private var appState: SpoofState? = null
 
     override fun onModuleLoaded(param: ModuleLoadedParam) {
         log(Log.INFO, TAG, "onModuleLoaded: ${param.processName}")
@@ -40,8 +39,7 @@ class ModuleEntry : XposedModule() {
         // App-process hooks for target apps (WeChat, AMap, GMS, ...). The module
         // only loads into processes the user put in the LSPosed scope.
         try {
-            val st = appState ?: SpoofState(this).also { appState = it }
-            AppHooks(this, param.classLoader, st).install()
+            AppHooks(this, param.classLoader).install()
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "install app hooks failed for ${param.packageName}: $t")
         }

@@ -23,9 +23,16 @@ object Keys {
      */
     const val PROBE_PROVIDER = "moon.location.probe"
 
+    /**
+     * Sentinel provider any app may query to read the current spoofed coordinates.
+     * The module (system_server) returns lat/lng/acc/provider in the Location.
+     * Used by the app-process OEM-ext hook, which cannot read the shared file due
+     * to SELinux but can always call LocationManager.
+     */
+    const val POS_PROVIDER = "moon.location.pos"
+
     /** Extras key holding the status JSON inside the probe Location. */
     const val PROBE_EXTRA_STATE = "state"
-
     /**
      * Root-written shared snapshot file (world-readable, shell_data_file context)
      * used as the primary cross-process channel when LSPosed remote preferences

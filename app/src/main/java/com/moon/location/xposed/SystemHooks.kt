@@ -54,9 +54,56 @@ class SystemHooks(
 
     fun install() {
         hookLastLocation()
+        hookProviderManagerGetLastLocation()
         hookReportLocation()
         hookAcceptLocationChange()
         module.log(Log.INFO, TAG, "system hooks installed")
+    }
+
+    /**
+     * `LocationProviderManager.getLastLocation(LastLocationRequest, CallerIdentity, int)`
+     * and `getLastLocationUnsafe(int,int,boolean,long)` — the provider-level last-fix
+     * accessors that the service delegates to. AMap reaches the location through these
+     * (via the OEM `LocationManagerExtImpl` cache on miss).
+     */
+    private fun hookProviderManagerGetLastLocation() {
+        val cls = HookUtil.findClass(
+            loader,
+            "com.android.server.location.provider.LocationProviderManager",
+        ) ?: return
+        HookUtil.hookAll(module, TAG, cls, "getLastLocation") { chain ->
+            val result = chain.proceed()
+            spoofOrSynthesize(result, providerFromArgs(chain.args))
+        }
+        HookUtil.hookAll(module, TAG, cls, "getLastLocationUnsafe") { chain ->
+            val result = chain.proceed()
+            spoofOrSynthesize(result, null)
+        }
+    }
+
+    /** Rewrite a non-null Location, or synthesize one when the provider has no fix. */
+    private fun spoofOrSynthesize(result: Any?, provider: String?): Any? {
+        val snap = state.active() ?: return result
+        val loc = result as? Location
+        return if (loc != null) {
+            LocationFactory.applyTo(loc, snap)
+            loc
+        } else {
+            LocationFactory.create(snap, provider ?: snap.provider)
+        }
+    }
+
+    private fun providerFromArgs(args: List<Any?>?): String? {
+        args ?: return null
+        for (a in args) {
+            if (a is String) return a
+            if (a == null) continue
+            if (a.javaClass.name.endsWith("LastLocationRequest")) {
+                (HookUtil.callMethod(a, "getProvider") as? String)?.let { return it }
+                (HookUtil.fieldValue(a, "mProvider") as? String)?.let { return it }
+            }
+        }
+        return null
     }
 
     /**
@@ -200,6 +247,9 @@ class SystemHooks(
             val provider = requestedProvider(chain.args)
             if (provider == Keys.PROBE_PROVIDER && isProbeAllowed()) {
                 buildProbeLocation()
+            } else if (provider == Keys.POS_PROVIDER) {
+                // Coordinate bridge for app-process OEM-ext hooks (any UID may read).
+                state.current()?.let { LocationFactory.create(it, it.provider) }
             } else {
                 val result = chain.proceed()
                 val snap = state.active()

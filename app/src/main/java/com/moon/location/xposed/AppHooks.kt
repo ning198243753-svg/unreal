@@ -1,113 +1,98 @@
 package com.moon.location.xposed
 
+import android.content.Context
 import android.location.Location
+import android.location.LocationManager
 import android.util.Log
-import io.github.libxposed.api.XposedInterface
+import com.moon.location.config.Keys
 import io.github.libxposed.api.XposedModule
 
 /**
- * App-process hooks. Target apps (WeChat, AMap, ...) frequently take location
- * through the client-side `android.location.LocationManager` inside their own
- * process, and some OEMs wrap it (`LocationManagerExtImpl` on OPLUS). The
- * system_server rewrite alone does not always reach them, so we also rewrite
- * here in the app process.
+ * App-process hooks. Some OEMs expose a client-side wrapper
+ * (`android.location.LocationManagerExtImpl` on realme/OPLUS) that keeps its own
+ * last-location cache and is what apps like AMap actually call. That cache lives
+ * in the app process, so it cannot be fixed from system_server alone.
  *
- * Hooks (best-effort, reflection-based, name+arity matching):
- *  - android.location.LocationManager#getLastKnownLocation(String)
- *  - android.location.LocationManager#getCurrentLocation(...)
- *  - android.location.LocationManager#requestLocationUpdates(...)  (rewrite args? no:
- *    its callbacks arrive via LocationListener; we instead hook LocationListener.onLocationChanged)
- *  - <OEM>.LocationManagerExtImpl#getLastLocation(...)
- *
- * The spoofed value comes from the shared snapshot (SpoofState).
+ * These hooks run inside the target app. They cannot read the shared snapshot file
+ * (SELinux denies untrusted_app -> system_data_file), so they fetch the current
+ * spoofed coordinates through the system location API using the POS probe provider,
+ * which the system_server hook answers.
  */
 class AppHooks(
     private val module: XposedModule,
     private val loader: ClassLoader,
-    private val state: SpoofState,
 ) {
     private companion object {
         const val TAG = "MoonLocation.AppHooks"
     }
 
+    @Volatile private var lm: LocationManager? = null
+    @Volatile private var lastFetch = 0L
+    @Volatile private var cachedSpoof: Location? = null
+
     fun install() {
-        hookLocationManager()
-        hookLocationListener()
         hookOemExt()
         module.log(Log.INFO, TAG, "app hooks installed")
     }
 
-    private fun spoofIfActive(original: Location?): Location? {
-        val snap = state.active() ?: return original
-        val base = original ?: return LocationFactory.create(snap)
-        LocationFactory.applyTo(base, snap)
-        return base
-    }
-
-    private fun hookLocationManager() {
-        val cls = HookUtil.findClass(loader, "android.location.LocationManager") ?: run {
-            module.log(Log.WARN, TAG, "LocationManager not found")
-            return
-        }
-        HookUtil.hookAll(module, TAG, cls, "getLastKnownLocation") { chain ->
-            val result = chain.proceed()
-            spoofIfActive(result as? Location)
-        }
-        // getCurrentLocation(String, CancellationSignal, Executor, Consumer) -> void
-        HookUtil.hookAll(module, TAG, cls, "getCurrentLocation") { chain ->
-            chain.proceed()
+    /** Ask system_server for the current spoofed fix via the POS provider. */
+    private fun spoofFix(): Location? {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastFetch < 1000L && cachedSpoof != null) return cachedSpoof
+        lastFetch = now
+        return try {
+            val ctx = currentApplication() ?: return cachedSpoof
+            val manager = lm ?: (ctx.getSystemService(Context.LOCATION_SERVICE) as? LocationManager)
+                ?.also { lm = it } ?: return cachedSpoof
+            val loc = manager.getLastKnownLocation(Keys.POS_PROVIDER)
+            if (loc != null) cachedSpoof = loc
+            cachedSpoof
+        } catch (t: Throwable) {
+            cachedSpoof
         }
     }
 
-    /** Rewrite the Location handed to app callbacks. */
-    private fun hookLocationListener() {
-        val cls = HookUtil.findClass(loader, "android.location.LocationListener") ?: return
-        for (m in cls.declaredMethods) {
-            if (m.name == "onLocationChanged" && m.parameterCount == 1 &&
-                m.parameterTypes[0].name == "android.location.Location"
-            ) {
-                runCatching {
-                    module.hook(m).intercept { chain ->
-                        val arg = chain.args.firstOrNull() as? Location
-                        if (arg != null) {
-                            spoofIfActive(arg)
-                            chain.proceedWith(arg, chain.args.toTypedArray())
-                        } else {
-                            chain.proceed()
-                        }
-                    }
-                }.onFailure { module.log(Log.WARN, TAG, "hook LocationListener failed: ${it.message}") }
-            }
+    private fun currentApplication(): Context? = runCatching {
+        val at = Class.forName("android.app.ActivityThread")
+        val current = at.getDeclaredMethod("currentActivityThread").invoke(null)
+        val app = at.getDeclaredMethod("getApplication").invoke(current)
+        app as? Context
+    }.getOrNull()
+
+    private fun applySpoof(original: Location?): Location? {
+        val fake = spoofFix() ?: return original
+        val out = original ?: Location(fake.provider ?: "gps")
+        out.latitude = fake.latitude
+        out.longitude = fake.longitude
+        if (fake.accuracy > 0f) out.accuracy = fake.accuracy
+        out.time = System.currentTimeMillis()
+        out.elapsedRealtimeNanos = android.os.SystemClock.elapsedRealtimeNanos()
+        runCatching {
+            Location::class.java.getMethod("setIsFromMockProvider", Boolean::class.javaPrimitiveType)
+                .invoke(out, false)
         }
+        return out
     }
 
-    /** OPLUS wraps LocationManager in android.location.LocationManagerExtImpl (App process). */
     private fun hookOemExt() {
         for (name in listOf(
             "android.location.LocationManagerExtImpl",
             "com.oplus.location.LocationManagerExtImpl",
-            "com.android.server.location.LocationManagerExtImpl",
         )) {
             val cls = HookUtil.findClass(loader, name) ?: continue
             module.log(Log.INFO, TAG, "hooking OEM ext $name")
             HookUtil.hookAll(module, TAG, cls, "getLastLocation") { chain ->
                 val result = chain.proceed()
-                spoofIfActive(result as? Location)
+                applySpoof(result as? Location)
             }
-            HookUtil.hookAll(module, TAG, cls, "getLastKnownLocation") { chain ->
-                val result = chain.proceed()
-                spoofIfActive(result as? Location)
-            }
-            // saveLastLocation(Context, Location, String, String, String): rewrite the
-            // cached Location argument so the OEM cache never stores a real fix.
+            // saveLastLocation(Context, Location, ...) keeps the OEM cache; rewrite it.
             for (m in cls.declaredMethods) {
                 if (m.name == "saveLastLocation") {
                     runCatching {
                         module.hook(m).intercept { chain ->
                             val idx = chain.args.indexOfFirst { it is Location }
-                            val snap = state.active()
-                            if (idx >= 0 && snap != null) {
-                                (chain.args[idx] as? Location)?.let { LocationFactory.applyTo(it, snap) }
+                            if (idx >= 0) {
+                                applySpoof(chain.args[idx] as? Location)
                             }
                             chain.proceed()
                         }
