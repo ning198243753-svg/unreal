@@ -36,13 +36,11 @@ class ModuleEntry : XposedModule() {
                 log(Log.INFO, TAG, "ModuleStatus probe hooked")
             }.onFailure { log(Log.WARN, TAG, "probe hook failed: ${it.message}") }
         }
-        // App-process hooks for target apps (WeChat, AMap, GMS, ...). The module
-        // only loads into processes the user put in the LSPosed scope.
-        try {
-            AppHooks(this, param.classLoader).install()
-        } catch (t: Throwable) {
-            log(Log.ERROR, TAG, "install app hooks failed for ${param.packageName}: $t")
-        }
+        // App-process hooks are DISABLED: on this ROM the OEM
+        // LocationManagerExtImpl re-enters LocationManager, which recursed through
+        // our own hook. System-server hooks are the correct, sufficient path
+        // (matches AnyDoor/Shadow). Kept the class for reference only.
+        // AppHooks(this, param.classLoader).install()
     }
 
     override fun onSystemServerStarting(param: SystemServerStartingParam) {

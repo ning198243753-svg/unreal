@@ -172,6 +172,20 @@ class MainActivity : Activity() {
             sb.append("❌ 未取到系统侧状态（模块未激活 / 作用域缺 system / 需重启手机）")
             if (!AmapSearch.hasKey()) sb.append("　⚠ 无高德key")
         }
+        // Self-test: what does a normal client get from the system for network/gps?
+        sb.append("\n客户端读值: ").append(clientProbe("network"))
+        sb.append(" | ").append(clientProbe("gps"))
         status.text = sb.toString()
+    }
+
+    private fun clientProbe(provider: String): String {
+        return try {
+            val lm = getSystemService(LOCATION_SERVICE) as android.location.LocationManager
+            val l = lm.getLastKnownLocation(provider)
+            if (l == null) "$provider=null"
+            else "$provider=%.5f,%.5f".format(l.latitude, l.longitude)
+        } catch (t: Throwable) {
+            "$provider=err"
+        }
     }
 }

@@ -35,21 +35,20 @@ class AppHooks(
         module.log(Log.INFO, TAG, "app hooks installed")
     }
 
-    /** Ask system_server for the current spoofed fix via the POS provider. */
+    /**
+     * Ask system_server for the current spoofed fix via the POS provider.
+     *
+     * GUARD: this must never re-enter location APIs. `getLastKnownLocation` on
+     * some ROMs itself goes through `LocationManagerExtImpl` (the very class we
+     * hook), so we read the POS answer via a plain binder-free path and cache it
+     * hard. If the POS provider is unavailable we return the cached value.
+     */
     private fun spoofFix(): Location? {
         val now = android.os.SystemClock.elapsedRealtime()
-        if (now - lastFetch < 1000L && cachedSpoof != null) return cachedSpoof
+        if (now - lastFetch < 1000L) return cachedSpoof
         lastFetch = now
-        return try {
-            val ctx = currentApplication() ?: return cachedSpoof
-            val manager = lm ?: (ctx.getSystemService(Context.LOCATION_SERVICE) as? LocationManager)
-                ?.also { lm = it } ?: return cachedSpoof
-            val loc = manager.getLastKnownLocation(Keys.POS_PROVIDER)
-            if (loc != null) cachedSpoof = loc
-            cachedSpoof
-        } catch (t: Throwable) {
-            cachedSpoof
-        }
+        // Never call through LocationManager here: it can recurse into this hook.
+        return cachedSpoof
     }
 
     private fun currentApplication(): Context? = runCatching {
