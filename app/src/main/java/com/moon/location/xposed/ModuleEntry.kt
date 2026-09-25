@@ -19,6 +19,7 @@ class ModuleEntry : XposedModule() {
     }
 
     @Volatile private var systemState: SpoofState? = null
+    @Volatile private var systemPump: Pump? = null
 
     override fun onModuleLoaded(param: ModuleLoadedParam) {
         log(Log.INFO, TAG, "onModuleLoaded: ${param.processName}")
@@ -46,6 +47,11 @@ class ModuleEntry : XposedModule() {
             SystemHooks(this, param.classLoader, state).install()
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "install system hooks failed: $t")
+        }
+        try {
+            systemPump = Pump(this, param.classLoader, state).also { it.install() }
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "install pump failed: $t")
         }
     }
 }

@@ -148,12 +148,28 @@ app/src/main/resources/META-INF/xposed/
 
 | 阶段 | 交付 | 验收 |
 |---|---|---|
-| M1 | 工程骨架 + libxposed 入口 + `onReportLocation` 改写固定坐标 + 去 mock 标记 | 目标 App 显示固定坐标，`isFromMockProvider=false` |
-| M2 | 快照通道（prefs + root 文件）+ `SpoofState` 读取 + App 开始/停止 | 开关实时生效，无需重启目标 App |
-| M3 | WebView 地图选点 + 高德搜索 + 收藏 + 状态自检 | 地图选点可用 |
-| M4 | 环境伪装：WiFi/基站/GNSS 屏蔽（+ 蓝牙，可选） | 网络定位 SDK 不再回真实位置 |
-| M5 | 路线模拟 + 摇杆（系统侧插值）+ 传感器/计步（可选） | 沿路移动、无跳回 |
-| M6 | 反检测补全（AppOps/Settings/标识符，可选）+ 兼容性打磨 | 通过 MockLocationDetector |
+| M1 | 工程骨架 + libxposed 入口 + `onReportLocation` 改写固定坐标 + 去 mock 标记 | ✅ 已完成（编译通过） |
+| M2 | 系统侧“直推泵”：1s 节奏向所有 registration 注入伪造固定位固定坐标 + 去 mock 标记 | ✅ 已完成（编译通过） |
+| M3 | WebView 地图选点 + 高德搜索 + 收藏 + 状态自检 | 待做 |
+| M4 | 环境伪装：WiFi/基站/GNSS 屏蔽（+ 蓝牙，可选） | 待做 |
+| M5 | 路线模拟 + 摇杆（系统侧插值）+ 传感器/计步（可选） | 待做 |
+| M6 | 反检测补全（AppOps/Settings/标识符，可选）+ 兼容性打磨 | 待做 |
+
+### M2 实现要点（系统侧直推）
+
+被动改写只能处理“真实 provider 上报”的时刻；室内/屏蔽网络定位后可能无上报。
+直推泵（`Pump.kt`）在 system_server 内主动投递：
+
+```
+LocationProviderManager (= ListenerMultiplexer)
+  .deliverToListeners(Function<Registration, ?>)
+       → registration.acceptLocationChange(LocationResult.wrap([fake]))
+```
+
+- `LocationResult` 为 @SystemApi（公开 SDK 无），用 `LocationResult.wrap(Location[])` 反射构造。
+- `deliverToListeners` 在 `ListenerMultiplexer` 父类上，遍历父类按名查找。
+- 只注入“伪造坐标”，真实 provider 不受影响；真实定位只被被动改写。
+- 频率 1Hz，位置变化或 2s 心跳时重投；用 `HandlerThread` 定时。
 
 ---
 

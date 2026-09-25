@@ -52,12 +52,14 @@ object LocationFactory {
 
     /** Create a fresh spoofed [Location] with the given provider name. */
     @JvmStatic
-    fun create(snap: ConfigSnapshot): Location {
-        val loc = Location(snap.provider)
+    fun create(snap: ConfigSnapshot, provider: String = snap.provider): Location {
+        val loc = Location(provider)
         loc.latitude = snap.lat
         loc.longitude = snap.lng
         loc.accuracy = if (snap.accuracy > 0f) snap.accuracy else 5f
         if (snap.alt != 0.0) loc.altitude = snap.alt
+        if (snap.speed > 0f) loc.speed = snap.speed
+        if (snap.bearing > 0f) loc.bearing = snap.bearing
         loc.time = System.currentTimeMillis()
         loc.elapsedRealtimeNanos = android.os.SystemClock.elapsedRealtimeNanos()
         clearMockFlag(loc)

@@ -63,7 +63,8 @@ scripts/commit.sh "M2: 描述"
 - [x] 去掉 mock 标记（`setIsFromMockProvider(false)` / `setMock(false)`）
 - [x] 跨进程配置通道（LSPosed remote preferences）
 - [x] 极简控制界面（输入经纬度 / 开始 / 停止）
-- [ ] M2：测试源驱动（室内无 GPS 时的持续输出）+ 快照校验/自检
+- [x] **M2**：系统侧“直推泵”——室内无 GPS 时按 1s 节奏向所有 location 注册持续注入伪造坐标
+- [ ] M2.5：快照自检 / 下发计数回读
 - [ ] M3：WebView + 高德地图选点
 - [ ] M4：环境伪装（WiFi / 基站 / GNSS 屏蔽）
 - [ ] M5：路线模拟 + 摇杆
@@ -74,6 +75,9 @@ scripts/commit.sh "M2: 描述"
 
 - `onReportLocation` 在个别 OEM 上可能有多重重载或经 `OplusLocationManagerService`
   分流；已做多类名/多重重载兜底，需真机日志确认命中。
+- 系统侧直推泵依赖 `LocationProviderManager#deliverToListeners(Function)` 与
+  `LocationResult.wrap(Location[])`（@SystemApi，反射调用）；若某 ROM 改名会降级为仅
+  被动改写。就绪状态会打印到 LSPosed 日志（`pump ready=...`）。
 - 若目标应用绕过系统定位（自绘 GNSS/第三方 SDK），需在 M4 补 App 级 hook。
 
 ## 免责声明

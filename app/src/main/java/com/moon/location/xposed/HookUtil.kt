@@ -4,8 +4,9 @@ import android.util.Log
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 
-/** Reflection helpers for the libxposed module side. */
+/** Reflection + hook helpers for the libxposed module side. */
 object HookUtil {
+
     /**
      * Try a list of fully-qualified class names in order and return the first that loads.
      * AOSP moved these classes across releases, and OEMs add their own variants.
@@ -36,6 +37,21 @@ object HookUtil {
         return null
     }
 
+    /** Find a declared method by name + arity (used when exact param types are unknown). */
+    @JvmStatic
+    fun findMethodByArity(clazz: Class<*>, name: String, arity: Int): java.lang.reflect.Method? {
+        var c: Class<*>? = clazz
+        while (c != null) {
+            for (m in c.declaredMethods) {
+                if (m.name == name && m.parameterCount == arity) {
+                    return m.apply { isAccessible = true }
+                }
+            }
+            c = c.superclass
+        }
+        return null
+    }
+
     /** Find a declared field anywhere in the hierarchy and make it accessible. */
     @JvmStatic
     fun findField(clazz: Class<*>, name: String): java.lang.reflect.Field? {
@@ -48,6 +64,16 @@ object HookUtil {
             }
         }
         return null
+    }
+
+    @JvmStatic
+    fun fieldValue(target: Any, name: String): Any? =
+        runCatching { findField(target.javaClass, name)?.get(target) }.getOrNull()
+
+    @JvmStatic
+    fun callMethod(target: Any, name: String, vararg args: Any?): Any? {
+        val m = findMethodByArity(target.javaClass, name, args.size) ?: return null
+        return runCatching { m.invoke(target, *args) }.getOrNull()
     }
 
     /** Hook every overload of [methodName] declared on [clazz] with [hooker]. */
@@ -74,6 +100,30 @@ object HookUtil {
             }
         }
         module.log(Log.INFO, tag, "hooked ${clazz.simpleName}#$methodName ($hooked overloads)")
+        return hooked
+    }
+
+    /** Hook every constructor of [clazz]; [onInstance] runs after the instance exists. */
+    @JvmStatic
+    fun hookConstructors(
+        module: XposedModule,
+        tag: String,
+        clazz: Class<*>,
+        onInstance: (Any) -> Unit,
+    ): Int {
+        var hooked = 0
+        for (ctor in clazz.declaredConstructors) {
+            try {
+                module.hook(ctor).intercept { chain ->
+                    val result = chain.proceed()
+                    runCatching { onInstance(chain.thisObject) }
+                    result
+                }
+                hooked++
+            } catch (t: Throwable) {
+                module.log(Log.ERROR, tag, "hook ctor ${clazz.name} failed: ${t.message}")
+            }
+        }
         return hooked
     }
 }
