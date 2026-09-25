@@ -12,7 +12,6 @@ import android.webkit.WebView
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
-import com.moon.location.ModuleStatus
 import com.moon.location.config.StatusReader
 import com.moon.location.engine.AmapSearch
 import com.moon.location.service.SpoofService
@@ -139,18 +138,26 @@ class MainActivity : Activity() {
     }
 
     private fun refreshStatus() {
-        val active = ModuleStatus.isModuleActive()
         val sb = StringBuilder()
-        sb.append(if (active) "✅ 模块已激活" else "❌ 未激活（LSPosed 勾选 system/android 等并重启）")
-        if (!AmapSearch.hasKey()) sb.append("　⚠ 未内置高德 key")
         val st = StatusReader.read(this)
         if (st != null) {
+            // System-side probe is authoritative: the module IS loaded in system_server.
+            sb.append("✅ 系统侧已激活")
+            if (!AmapSearch.hasKey()) sb.append("　⚠ 无高德key")
             st.optJSONObject("snapshot")?.let { snap ->
                 sb.append("　rev=").append(snap.optLong("revision"))
-                sb.append(" started=").append(snap.optBoolean("started"))
+                sb.append(" 模拟=").append(if (snap.optBoolean("started")) "on" else "off")
             }
             sb.append("　泵=").append(if (st.optBoolean("pumpReady")) "on" else "off")
+            sb.append("(").append(st.optInt("pumpManagers")).append(")")
+            sb.append("　上报=").append(st.optLong("reportHits"))
+            sb.append(" 改写=").append(st.optLong("rewriteHits"))
             sb.append("　注入=").append(st.optLong("injected"))
+            val err = st.optString("error", "")
+            if (err.isNotEmpty() && err != "null") sb.append("　err=").append(err)
+        } else {
+            sb.append("❌ 未取到系统侧状态（模块未激活 / 作用域缺 system / 需重启手机）")
+            if (!AmapSearch.hasKey()) sb.append("　⚠ 无高德key")
         }
         status.text = sb.toString()
     }

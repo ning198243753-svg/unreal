@@ -35,6 +35,10 @@ class SystemHooks(
     /** Set after the pump is created so the probe can report its stats. */
     @Volatile private var pump: Pump? = null
 
+    /** Diagnostics for the status probe. */
+    private val reportHits = java.util.concurrent.atomic.AtomicLong(0)
+    private val rewriteHits = java.util.concurrent.atomic.AtomicLong(0)
+
     fun attachPump(pump: Pump) {
         this.pump = pump
     }
@@ -46,9 +50,12 @@ class SystemHooks(
     }
 
     /**
-     * Choke point for every provider report. `LocationResult` exposes a
-     * `mLocations` list; we rewrite each Location in place so that whatever
-     * downstream registration / cache receives is already spoofed.
+     * Choke point for every provider report. `LocationResult` exposes an
+     * `ArrayList<Location> mLocations` (verified on this ROM); we rewrite each
+     * Location in place BEFORE the framework dispatches (dispatch happens inside
+     * proceed).
+     *
+     * Also captures the live LocationProviderManager instance for the pump.
      */
     private fun hookReportLocation() {
         val cls = HookUtil.findClass(
@@ -59,14 +66,19 @@ class SystemHooks(
             return
         }
 
-        HookUtil.hookAll(module, TAG, cls, "onReportLocation") { chain ->
-            // Rewrite BEFORE the framework dispatches (dispatch happens inside proceed).
+        val n = HookUtil.hookAll(module, TAG, cls, "onReportLocation") { chain ->
+            // Capture the manager instance from the live call path.
+            pump?.registerManager(chain.thisObject)
+            reportHits.incrementAndGet()
             val snap = state.active()
             if (snap != null) {
-                rewriteLocationResult(chain.args.firstOrNull(), snap)
+                if (rewriteLocationResult(chain.args.firstOrNull(), snap)) {
+                    rewriteHits.incrementAndGet()
+                }
             }
             chain.proceed()
         }
+        module.log(Log.INFO, TAG, "onReportLocation hooks=$n")
     }
 
     /**
@@ -85,6 +97,8 @@ class SystemHooks(
         }
 
         HookUtil.hookAll(module, TAG, cls, "getLastLocation") { chain ->
+            // Capture the live LocationManagerService instance (for mProviderManagers).
+            pump?.attachLms(chain.thisObject)
             val provider = requestedProvider(chain.args)
             if (provider == Keys.PROBE_PROVIDER && isProbeAllowed()) {
                 buildProbeLocation()
@@ -133,6 +147,8 @@ class SystemHooks(
             put("pumpDelivery", pump?.deliveryName ?: JSONObject.NULL)
             put("pumpManagers", pump?.managerCount ?: 0)
             put("injected", pump?.injectedCount ?: 0L)
+            put("reportHits", reportHits.get())
+            put("rewriteHits", rewriteHits.get())
         }
         val b = Bundle()
         b.putString(Keys.PROBE_EXTRA_STATE, json.toString())
@@ -159,19 +175,29 @@ class SystemHooks(
     }
 
     /**
-     * Reflect into `LocationResult.mLocations`; field name is stable across Android 12–16.
+     * Reflect into `LocationResult.mLocations` (an `ArrayList<Location>` on this ROM).
+     * Returns true if at least one Location was rewritten.
      */
-    private fun rewriteLocationResult(result: Any?, snap: com.moon.location.config.ConfigSnapshot) {
-        if (result == null) return
-        try {
-            val listField = HookUtil.findField(result.javaClass, "mLocations") ?: return
+    private fun rewriteLocationResult(
+        result: Any?,
+        snap: com.moon.location.config.ConfigSnapshot,
+    ): Boolean {
+        if (result == null) return false
+        return try {
+            val listField = HookUtil.findField(result.javaClass, "mLocations") ?: return false
             @Suppress("UNCHECKED_CAST")
-            val list = listField.get(result) as? MutableList<Any?> ?: return
+            val list = listField.get(result) as? MutableList<Any?> ?: return false
+            var changed = false
             for (i in list.indices) {
-                (list[i] as? Location)?.let { LocationFactory.applyTo(it, snap) }
+                (list[i] as? Location)?.let {
+                    LocationFactory.applyTo(it, snap)
+                    changed = true
+                }
             }
+            changed
         } catch (t: Throwable) {
             module.log(Log.WARN, TAG, "rewrite LocationResult failed: ${t.message}")
+            false
         }
     }
 }

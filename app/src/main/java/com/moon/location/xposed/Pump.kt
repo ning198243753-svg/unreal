@@ -80,15 +80,18 @@ class Pump(
             "com.android.server.LocationManagerService",
         )
         locationResultClass = HookUtil.findClass(loader, "android.location.LocationResult")
+        // NOTE: real ROM signature is wrap(Location[]) (varargs).
         wrapMethod = locationResultClass?.let {
             HookUtil.findMethod(it, "wrap", Array<Location>::class.java)
         }
 
+        // IMPORTANT: onSystemServerStarting runs BEFORE LocationManagerService and its
+        // provider managers are constructed, so ctor hooks are unreliable. Instead we
+        // capture instances lazily from the live call path (SystemHooks calls attachLms /
+        // captureManager), plus we still install ctor hooks as a best-effort bonus.
         managerClass?.let { cls ->
             findDelivery(cls)?.let { delivery = it }
-            HookUtil.hookConstructors(module, TAG, cls) { inst ->
-                managerName(inst)?.let { managers[it] = inst }
-            }
+            HookUtil.hookConstructors(module, TAG, cls) { inst -> registerManager(inst) }
         }
         lmsClass?.let { cls ->
             HookUtil.hookConstructors(module, TAG, cls) { inst -> lmsInstance = inst }
@@ -101,6 +104,26 @@ class Pump(
             "pump ready=$isReady delivery=${delivery?.name} wrap=${wrapMethod != null} resultClass=${locationResultClass != null}",
         )
         start()
+    }
+
+    /** Called from the live hook path when a LocationProviderManager instance is seen. */
+    fun registerManager(manager: Any) {
+        runCatching {
+            managerName(manager)?.let { managers[it] = manager }
+        }
+    }
+
+    /** Called from the live hook path when the LocationManagerService instance is seen. */
+    fun attachLms(service: Any) {
+        lmsInstance = service
+        promoteManagers()
+    }
+
+    /** Promote providers from LocationManagerService.mProviderManagers into our map. */
+    private fun promoteManagers() {
+        val service = lmsInstance ?: return
+        val list = HookUtil.fieldValue(service, "mProviderManagers") as? Iterable<*> ?: return
+        for (m in list) if (m != null) registerManager(m)
     }
 
     private fun start() {
@@ -207,11 +230,7 @@ class Pump(
     /** Recover provider managers from `LocationManagerService.mProviderManagers` if needed. */
     private fun ensureManagers() {
         if (managers.size >= PROVIDERS.size) return
-        val service = lmsInstance ?: return
-        val list = HookUtil.fieldValue(service, "mProviderManagers") as? Iterable<*> ?: return
-        for (m in list) {
-            if (m != null) managerName(m)?.let { managers[it] = m }
-        }
+        promoteManagers()
     }
 
     private fun managerName(manager: Any): String? {
