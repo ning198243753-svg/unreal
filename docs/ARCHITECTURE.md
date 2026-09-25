@@ -151,7 +151,7 @@ app/src/main/resources/META-INF/xposed/
 | M1 | 工程骨架 + libxposed 入口 + `onReportLocation` 改写固定坐标 + 去 mock 标记 | ✅ 已完成（编译通过） |
 | M2 | 系统侧“直推泵”：1s 节奏向所有 registration 注入伪造固定位固定坐标 + 去 mock 标记 | ✅ 已完成（编译通过） |
 | M2.5 | 状态自检/回读：探针 Provider 把 system_server 侧状态 JSON 回传 App（仅本模块 UID 可读） | ✅ 已完成（编译通过） |
-| M3 | WebView 地图选点 + 高德搜索 + 收藏 + 状态自检 | 待做 |
+| M3 | WebView + Leaflet + 高德瓦片选点 + Web服务 REST 搜索 | ✅ 已完成（编译通过） |
 | M4 | 环境伪装：WiFi/基站/GNSS 屏蔽（+ 蓝牙，可选） | 待做 |
 | M5 | 路线模拟 + 摇杆（系统侧插值）+ 传感器/计步（可选） | 待做 |
 | M6 | 反检测补全（AppOps/Settings/标识符，可选）+ 兼容性打磨 | 待做 |

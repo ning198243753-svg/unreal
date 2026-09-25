@@ -36,14 +36,19 @@ provider 上报的唯一汇聚点），因此对所有使用系统定位接口�
 # 1) 一次性安装 JDK21 + Android SDK(platform-36/build-tools-36) + Gradle 8.9
 scripts/setup-toolchain.sh
 
-# 2) 构建 debug APK
-scripts/build.sh                    # 产物 app/build/outputs/apk/debug/app-debug.apk
-scripts/build.sh :app:assembleRelease
-scripts/build.sh clean
+# 2) 高德 Web服务 key（仅存在仓库外，构建时注入，不打入 Git）
+mkdir -p ~/.config/moon
+read -rsp "高德 Web服务 key: " K && printf '%s' "$K" > ~/.config/moon/amap-web-key && chmod 600 ~/.config/moon/amap-web-key
 
-# 3) 安装到已连接设备（可选）
+# 3) 构建 debug APK
+scripts/build.sh                    # 产物 app/build/outputs/apk/debug/app-debug.apk
+
+# 4) 安装到已连接设备（会改变手机状态，需先确认）
 scripts/install.sh
 ```
+
+key 读取优先级：环境变量 `AMAP_WEB_KEY` > `~/.config/moon/amap-web-key` > `local.properties`
+的 `amap.web.key`。三者都在仓库外。
 
 当前 shell 手动激活环境：`source scripts/env.sh`
 
@@ -65,9 +70,17 @@ scripts/commit.sh "M2: 描述"
 - [x] 极简控制界面（输入经纬度 / 开始 / 停止）
 - [x] **M2**：系统侧“直推泵”——室内无 GPS 时按 1s 节奏向所有 location 注册持续注入伪造坐标
 - [x] **M2.5**：状态自检/回读（探针 Provider 把 system_server 侧状态 JSON 回传 App）
-- [ ] M3：WebView + 高德地图选点
+- [x] **M3**：WebView + Leaflet + 高德瓦片地图选点，高德 Web服务 REST 搜索
 - [ ] M4：环境伪装（WiFi / 基站 / GNSS 屏蔽）
 - [ ] M5：路线模拟 + 摇杆
+
+## 使用
+
+1. 地图页（WebView）点图选点，或顶部搜索框按名称搜（高德 Web服务）：
+   - 地图瓦片用高德（Leaflet 加载，不需要 key）；搜索用高德 REST（需要 Web服务 key）。
+   - 坐标系：地图显示 GCJ-02，内部统一 WGS-84，点选时自动纠偏。
+2. 点“开始模拟”→ 写入快照；system_server 侧 hook + 直推泵生效。
+3. 顶部状态栏实时显示：激活状态 / 快照 revision / 泵是否就绪 / 已注入次数。
 
 详见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
 

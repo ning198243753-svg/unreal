@@ -1,6 +1,24 @@
+import java.io.File
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+}
+
+// AMap Web-service key injected from OUTSIDE the repo (never committed).
+// Priority: env AMAP_WEB_KEY > ~/.config/moon/amap-web-key > local.properties.
+val amapKey: String = run {
+    System.getenv("AMAP_WEB_KEY")?.trim()?.takeIf { it.isNotEmpty() }?.let { return@run it }
+    File(System.getProperty("user.home"), ".config/moon/amap-web-key")
+        .takeIf { it.isFile }?.readText()?.trim()?.takeIf { it.isNotEmpty() }?.let { return@run it }
+    val lp = rootProject.file("local.properties")
+    if (lp.isFile) {
+        val props = Properties()
+        lp.inputStream().use { props.load(it) }
+        props.getProperty("amap.web.key")?.trim()?.takeIf { it.isNotEmpty() }?.let { return@run it }
+    }
+    ""
 }
 
 android {
@@ -13,6 +31,12 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+
+        buildConfigField("String", "AMAP_WEB_KEY", "\"$amapKey\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {

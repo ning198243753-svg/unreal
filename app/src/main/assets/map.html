@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="leaflet/leaflet.css" />
+  <script src="leaflet/leaflet.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; }
+    #map { position: absolute; inset: 0; }
+    .searchbar {
+      position: absolute; z-index: 1000; top: 8px; left: 8px; right: 8px;
+      display: flex; gap: 6px;
+    }
+    .searchbar input {
+      flex: 1; height: 40px; border: none; border-radius: 8px; padding: 0 12px;
+      font-size: 15px; box-shadow: 0 2px 8px rgba(0,0,0,.25); outline: none;
+    }
+    .searchbar button {
+      height: 40px; padding: 0 14px; border: none; border-radius: 8px;
+      background: #1677ff; color: #fff; font-size: 15px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    }
+    #results {
+      position: absolute; z-index: 1000; top: 56px; left: 8px; right: 8px;
+      background: #fff; border-radius: 8px; max-height: 40%; overflow: auto;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25); display: none;
+    }
+    #results .item { padding: 10px 12px; border-bottom: 1px solid #eee; font-size: 14px; }
+    #results .item small { color: #888; }
+    .coord {
+      position: absolute; z-index: 1000; bottom: 8px; left: 8px;
+      background: rgba(0,0,0,.6); color: #fff; font-size: 12px;
+      padding: 4px 8px; border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="searchbar">
+    <input id="q" placeholder="搜索地点（高德）" />
+    <button onclick="doSearch()">搜索</button>
+  </div>
+  <div id="results"></div>
+  <div class="coord" id="coord">—</div>
+
+  <script>
+    // ---------- WGS-84 <-> GCJ-02 ----------
+    var PI = 3.1415926535897932384626, a = 6378245.0, ee = 0.00669342162296594323;
+    function outOfChina(lng, lat) { return !(lng > 73.66 && lng < 135.05 && lat > 3.86 && lat < 53.55); }
+    function transformLat(x, y) {
+      var r = -100 + 2*x + 3*y + 0.2*y*y + 0.1*x*y + 0.2*Math.sqrt(Math.abs(x));
+      r += (20*Math.sin(6*x*PI) + 20*Math.sin(2*x*PI)) * 2/3;
+      r += (20*Math.sin(y*PI) + 40*Math.sin(y/3*PI)) * 2/3;
+      r += (160*Math.sin(y/12*PI) + 320*Math.sin(y*PI/30)) * 2/3;
+      return r;
+    }
+    function transformLng(x, y) {
+      var r = 300 + x + 2*y + 0.1*x*x + 0.1*x*y + 0.1*Math.sqrt(Math.abs(x));
+      r += (20*Math.sin(6*x*PI) + 20*Math.sin(2*x*PI)) * 2/3;
+      r += (20*Math.sin(x*PI) + 40*Math.sin(x/3*PI)) * 2/3;
+      r += (150*Math.sin(x/12*PI) + 300*Math.sin(x/30*PI)) * 2/3;
+      return r;
+    }
+    function wgs84ToGcj02(lng, lat) {
+      if (outOfChina(lng, lat)) return [lng, lat];
+      var dLat = transformLat(lng-105, lat-35), dLng = transformLng(lng-105, lat-35);
+      var radLat = lat/180*PI, magic = Math.sin(radLat); magic = 1 - ee*magic*magic;
+      var sqrtMagic = Math.sqrt(magic);
+      dLat = (dLat*180) / ((a*(1-ee)) / (magic*sqrtMagic) * PI);
+      dLng = (dLng*180) / (a/sqrtMagic*Math.cos(radLat)*PI);
+      return [lng + dLng, lat + dLat];
+    }
+    function gcj02ToWgs84(lng, lat) {
+      if (outOfChina(lng, lat)) return [lng, lat];
+      var g = wgs84ToGcj02(lng, lat);
+      return [lng*2 - g[0], lat*2 - g[1]];
+    }
+
+    var DEFAULT_WGS = [116.3975, 39.9087]; // Beijing (WGS-84)
+    var currentWgs = DEFAULT_WGS.slice();
+
+    var map = L.map('map', { zoomControl: true, attributionControl: false })
+      .setView([39.9087, 116.3975], 13);
+
+    L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+      subdomains: '1234', maxZoom: 18, minZoom: 3
+    }).addTo(map);
+
+    var marker = null;
+    function setMarker(wgsLng, wgsLat) {
+      currentWgs = [wgsLng, wgsLat];
+      var gcj = wgs84ToGcj02(wgsLng, wgsLat);
+      if (marker) marker.setLatLng([gcj[1], gcj[0]]);
+      else marker = L.marker([gcj[1], gcj[0]]).addTo(map);
+      document.getElementById('coord').innerText =
+        'WGS84 ' + wgsLat.toFixed(6) + ', ' + wgsLng.toFixed(6);
+      if (window.Android && Android.onPick) Android.onPick(wgsLat, wgsLng);
+    }
+
+    map.on('click', function (e) {
+      var wgs = gcj02ToWgs84(e.latlng.lng, e.latlng.lat);
+      setMarker(wgs[0], wgs[1]);
+    });
+
+    function showResults(items) {
+      var box = document.getElementById('results');
+      if (!items || !items.length) { box.style.display = 'none'; return; }
+      box.innerHTML = items.map(function (it, i) {
+        return '<div class="item" onclick="pickResult(' + i + ')"><b>' + it.name +
+          '</b><br><small>' + (it.address || '') + '</small></div>';
+      }).join('');
+      box._items = items;
+      box.style.display = 'block';
+    }
+    function pickResult(i) {
+      var box = document.getElementById('results');
+      var it = box._items[i];
+      box.style.display = 'none';
+      document.getElementById('q').value = it.name;
+      var wgs = gcj02ToWgs84(it.lng, it.lat); // AMap returns GCJ-02
+      map.setView([it.lat, it.lng], 16);
+      setMarker(wgs[0], wgs[1]);
+    }
+    function doSearch() {
+      var q = document.getElementById('q').value.trim();
+      if (!q) return;
+      if (window.Android && Android.search) Android.search(q);
+    }
+    document.getElementById('q').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') doSearch();
+    });
+
+    // Called from native with a JSON string of [{name,lat,lng,address}]
+    window.onSearchResult = function (json) {
+      try { showResults(JSON.parse(json)); } catch (e) { showResults([]); }
+    };
+
+    // initial marker + notify native
+    setMarker(DEFAULT_WGS[0], DEFAULT_WGS[1]);
+    window.onMapReady && window.onMapReady();
+  </script>
+</body>
+</html>

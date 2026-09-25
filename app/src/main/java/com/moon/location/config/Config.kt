@@ -61,6 +61,11 @@ object Config {
         return next
     }
 
+    /** Read the current snapshot, or null. */
+    @JvmStatic
+    fun read(ctx: Context): ConfigSnapshot? =
+        ConfigSnapshot.fromJson(prefs(ctx).getString(Keys.KEY_SNAPSHOT, null))
+
     /** Refresh only the lease timestamps of the current snapshot (heartbeat). */
     @JvmStatic
     fun heartbeat(ctx: Context) {
