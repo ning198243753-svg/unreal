@@ -38,11 +38,19 @@ data class ConfigSnapshot(
         put(F_PROVIDER, provider)
     }.toString()
 
-    /** True when the writer has refreshed the snapshot within [leaseMs]. */
+/**
+     * Snapshot is considered fresh when the writer touched it within [leaseMs].
+     *
+     * The lease is only a safety net for the case where the app is force-killed
+     * while `started=true` (so spoofing stops on its own). It is intentionally
+     * generous (10 minutes) because the heartbeat may be delayed while the app
+     * is in the background and a too-short lease produced flapping spoofing.
+     * Explicit stop writes `started=false`, which is authoritative.
+     */
     fun isFresh(nowWall: Long, nowElapsed: Long, leaseMs: Long = LEASE_MS): Boolean {
         val dw = nowWall - wall
         val de = nowElapsed - elapsed
-        return dw in -2_000..leaseMs && de in 0..leaseMs
+        return dw in -60_000..leaseMs && de in -60_000..leaseMs
     }
 
     fun isActive(nowWall: Long, nowElapsed: Long, leaseMs: Long = LEASE_MS): Boolean =
@@ -50,7 +58,7 @@ data class ConfigSnapshot(
 
     companion object {
         const val SCHEMA = 1
-        const val LEASE_MS = 15_000L
+        const val LEASE_MS = 600_000L
 
         private const val F_SCHEMA = "_schema"
         private const val F_REVISION = "_revision"

@@ -17,8 +17,8 @@ import com.moon.location.config.Config
 import com.moon.location.ui.MainActivity
 
 /**
- * Drives the spoof: writes the config snapshot and keeps its lease fresh with a
- * heartbeat. The actual location rewriting happens in system_server.
+ * Drives the spoof: writes the config snapshot and keeps it fresh with a heartbeat.
+ * The actual location rewriting happens in system_server.
  */
 class SpoofService : Service() {
 
@@ -30,7 +30,7 @@ class SpoofService : Service() {
 
         private const val CHANNEL_ID = "spoof"
         private const val NOTIF_ID = 1
-        private const val HEARTBEAT_MS = 5_000L
+        private const val HEARTBEAT_MS = 3_000L
 
         fun start(ctx: Context, lat: Double, lng: Double) {
             ctx.startForegroundService(
@@ -50,8 +50,12 @@ class SpoofService : Service() {
     private var lat = 39.9087
     private var lng = 116.3975
 
+    /** True while the user intends spoofing to run. Survives sticky restarts. */
+    @Volatile private var running = false
+
     private val heartbeat = object : Runnable {
         override fun run() {
+            if (!running) return
             Config.heartbeat(this@SpoofService)
             handler.postDelayed(this, HEARTBEAT_MS)
         }
@@ -69,23 +73,46 @@ class SpoofService : Service() {
                     buildNotification(),
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
                 )
+                running = true
                 Config.write(this, started = true, lat = lat, lng = lng)
-                handler.removeCallbacks(heartbeat)
-                handler.postDelayed(heartbeat, HEARTBEAT_MS)
+                restartHeartbeat()
             }
             ACTION_STOP -> {
+                running = false
                 handler.removeCallbacks(heartbeat)
                 Config.write(this, started = false, lat = lat, lng = lng)
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
+            else -> {
+                // Sticky restart (null intent): if we were running, resume the heartbeat
+                // and re-assert started=true so the lease never lapses.
+                if (running) {
+                    startForeground(
+                        NOTIF_ID,
+                        buildNotification(),
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                    )
+                    Config.write(this, started = true, lat = lat, lng = lng)
+                    restartHeartbeat()
+                }
+            }
         }
         return START_STICKY
     }
 
+    private fun restartHeartbeat() {
+        handler.removeCallbacks(heartbeat)
+        handler.post(heartbeat)
+    }
+
     override fun onDestroy() {
         handler.removeCallbacks(heartbeat)
-        Config.write(this, started = false, lat = lat, lng = lng)
+        // Only clear when the user actually stopped. A system kill keeps the last
+        // started=true snapshot; the (now 10 min) lease is the safety net.
+        if (!running) {
+            Config.write(this, started = false, lat = lat, lng = lng)
+        }
         super.onDestroy()
     }
 

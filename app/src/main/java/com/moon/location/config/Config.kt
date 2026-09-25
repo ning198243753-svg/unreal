@@ -96,9 +96,18 @@ object Config {
             elapsed = SystemClock.elapsedRealtime(),
         ).toJson()
         prefs(ctx).edit().putString(Keys.KEY_SNAPSHOT, json).commit()
-        makePrefsReadable(ctx)
-        publishShared(ctx, json)
+        if (now - lastMirror >= MIRROR_INTERVAL_MS) {
+            lastMirror = now
+            publishShared(ctx, json)
+        }
     }
+
+    /**
+     * Mirror interval for the root-written shared file. Kept below the shortest
+     * lease any module version has used (15s) so the snapshot never appears stale
+     * even before a system_server reload picks up a longer lease.
+     */
+    private const val MIRROR_INTERVAL_MS = 8_000L
 
     /**
      * Make the app's own prefs XML world-readable so system_server (system uid)
@@ -125,4 +134,6 @@ object Config {
             if (!ok) Log.w(TAG, "shared file publish failed")
         }
     }
+
+    @Volatile private var lastMirror = 0L
 }
