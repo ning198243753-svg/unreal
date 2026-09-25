@@ -55,7 +55,7 @@ scripts/install.sh
 scripts/commit.sh "M2: 描述"
 ```
 
-## 当前进度（M1）
+## 当前进度（M1 / M2 / M2.5）
 
 - [x] 工程骨架（Kotlin + Gradle KTS + libxposed 101）
 - [x] `system_server` 核心 hook：`LocationProviderManager#onReportLocation` 改写坐标
@@ -64,20 +64,28 @@ scripts/commit.sh "M2: 描述"
 - [x] 跨进程配置通道（LSPosed remote preferences）
 - [x] 极简控制界面（输入经纬度 / 开始 / 停止）
 - [x] **M2**：系统侧“直推泵”——室内无 GPS 时按 1s 节奏向所有 location 注册持续注入伪造坐标
-- [ ] M2.5：快照自检 / 下发计数回读
+- [x] **M2.5**：状态自检/回读（探针 Provider 把 system_server 侧状态 JSON 回传 App）
 - [ ] M3：WebView + 高德地图选点
 - [ ] M4：环境伪装（WiFi / 基站 / GNSS 屏蔽）
 - [ ] M5：路线模拟 + 摇杆
 
 详见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
 
-## 已知待验证点（M1 → M2）
+## 状态自检（M2.5）
+
+App 调 `getLastKnownLocation("moon.location.probe")`；模块在 system_server 拦截该
+调用，返回一个携带 JSON 的 Location extras，包含：配置是否可读、快照 revision、是否
+模拟中、直推泵是否就绪 / 捕获到几个 provider、已注入次数、最近错误。
+
+用途：真机验证时无需翻日志，在 App 首页即可看到系统侧真实状态。
+
+## 已知待验证点
 
 - `onReportLocation` 在个别 OEM 上可能有多重重载或经 `OplusLocationManagerService`
   分流；已做多类名/多重重载兜底，需真机日志确认命中。
 - 系统侧直推泵依赖 `LocationProviderManager#deliverToListeners(Function)` 与
   `LocationResult.wrap(Location[])`（@SystemApi，反射调用）；若某 ROM 改名会降级为仅
-  被动改写。就绪状态会打印到 LSPosed 日志（`pump ready=...`）。
+  被动改写。就绪状态可在 App 首页 / LSPosed 日志（`pump ready=...`）查看。
 - 若目标应用绕过系统定位（自绘 GNSS/第三方 SDK），需在 M4 补 App 级 hook。
 
 ## 免责声明

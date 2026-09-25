@@ -70,6 +70,14 @@ object HookUtil {
     fun fieldValue(target: Any, name: String): Any? =
         runCatching { findField(target.javaClass, name)?.get(target) }.getOrNull()
 
+    /** system_server's application Context, for permission checks. */
+    @JvmStatic
+    fun systemContext(): android.content.Context? = runCatching {
+        val at = Class.forName("android.app.ActivityThread")
+        val current = at.getDeclaredMethod("currentActivityThread").invoke(null)
+        at.getDeclaredMethod("getSystemContext").invoke(current) as? android.content.Context
+    }.getOrNull()
+
     @JvmStatic
     fun callMethod(target: Any, name: String, vararg args: Any?): Any? {
         val m = findMethodByArity(target.javaClass, name, args.size) ?: return null

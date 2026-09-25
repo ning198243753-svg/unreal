@@ -43,13 +43,18 @@ class ModuleEntry : XposedModule() {
         log(Log.INFO, TAG, "onSystemServerStarting")
         val state = SpoofState(this)
         systemState = state
+        var hooks: SystemHooks? = null
         try {
-            SystemHooks(this, param.classLoader, state).install()
+            hooks = SystemHooks(this, param.classLoader, state)
+            hooks.install()
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "install system hooks failed: $t")
         }
         try {
-            systemPump = Pump(this, param.classLoader, state).also { it.install() }
+            val pump = Pump(this, param.classLoader, state)
+            systemPump = pump
+            pump.install()
+            hooks?.attachPump(pump)
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "install pump failed: $t")
         }

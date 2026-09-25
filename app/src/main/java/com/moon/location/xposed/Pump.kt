@@ -59,6 +59,12 @@ class Pump(
     /** Number of fixes injected so far (for status readback). */
     val injectedCount: Long get() = injected.get()
 
+    /** Providers whose manager instance we captured. */
+    val managerCount: Int get() = managers.size
+
+    /** Name of the resolved delivery method, or null if not found. */
+    val deliveryName: String? get() = delivery?.name
+
     /** True when the reflective pieces were all found on this ROM. */
     @Volatile var isReady = false
         private set

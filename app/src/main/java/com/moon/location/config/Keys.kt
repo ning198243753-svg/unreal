@@ -15,4 +15,14 @@ object Keys {
 
     /** Inverse version of the raw app-side preferences, for the module-active probe. */
     const val KEY_MODULE_VERSION = "module_version"
+
+    /**
+     * Sentinel "provider" name used only to read status back out of system_server.
+     * The module intercepts `getLastLocation("moon.location.probe")` and returns a
+     * Location carrying a JSON status blob in its extras. Never a real provider.
+     */
+    const val PROBE_PROVIDER = "moon.location.probe"
+
+    /** Extras key holding the status JSON inside the probe Location. */
+    const val PROBE_EXTRA_STATE = "state"
 }

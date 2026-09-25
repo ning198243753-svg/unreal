@@ -20,9 +20,17 @@ class SpoofState(private val module: XposedModule) {
 
     @Volatile private var cached: ConfigSnapshot? = null
     @Volatile private var lastRead = 0L
+    @Volatile private var rawPresent = false
+    @Volatile private var error: String? = null
     private val lock = Any()
 
     private val prefs by lazy { module.getRemotePreferences(Keys.GROUP) }
+
+    /** Whether a snapshot string was present in preferences at the last read. */
+    fun configReadable(): Boolean = rawPresent
+
+    /** Last read/parse error, or null. */
+    fun lastError(): String? = error
 
     fun refresh() {
         val now = SystemClock.elapsedRealtime()
@@ -33,12 +41,16 @@ class SpoofState(private val module: XposedModule) {
             val raw = try {
                 prefs.getString(Keys.KEY_SNAPSHOT, null)
             } catch (t: Throwable) {
-                module.log(Log.WARN, TAG, "read snapshot failed: ${t.message}")
+                error = "prefs: ${t.javaClass.simpleName}"
                 null
             }
+            rawPresent = !raw.isNullOrBlank()
             val parsed = ConfigSnapshot.fromJson(raw)
             if (parsed != null && (cached == null || parsed.revision >= cached!!.revision)) {
                 cached = parsed
+                error = null
+            } else if (parsed == null && rawPresent) {
+                error = "parse failed"
             }
         }
     }

@@ -150,6 +150,7 @@ app/src/main/resources/META-INF/xposed/
 |---|---|---|
 | M1 | 工程骨架 + libxposed 入口 + `onReportLocation` 改写固定坐标 + 去 mock 标记 | ✅ 已完成（编译通过） |
 | M2 | 系统侧“直推泵”：1s 节奏向所有 registration 注入伪造固定位固定坐标 + 去 mock 标记 | ✅ 已完成（编译通过） |
+| M2.5 | 状态自检/回读：探针 Provider 把 system_server 侧状态 JSON 回传 App（仅本模块 UID 可读） | ✅ 已完成（编译通过） |
 | M3 | WebView 地图选点 + 高德搜索 + 收藏 + 状态自检 | 待做 |
 | M4 | 环境伪装：WiFi/基站/GNSS 屏蔽（+ 蓝牙，可选） | 待做 |
 | M5 | 路线模拟 + 摇杆（系统侧插值）+ 传感器/计步（可选） | 待做 |
@@ -170,6 +171,21 @@ LocationProviderManager (= ListenerMultiplexer)
 - `deliverToListeners` 在 `ListenerMultiplexer` 父类上，遍历父类按名查找。
 - 只注入“伪造坐标”，真实 provider 不受影响；真实定位只被被动改写。
 - 频率 1Hz，位置变化或 2s 心跳时重投；用 `HandlerThread` 定时。
+
+### M2.5 状态回读（探针）
+
+App 调 `getLastKnownLocation("moon.location.probe")` → 模块在 `getLastLocation` hook 中
+识别到该 provider，直接返回一个携带 JSON 的 `Location.extras`（不查真实 provider）：
+
+```json
+{ "sdk":36, "configReadable":true,
+  "snapshot":{"revision":123,"started":true,"lat":..,"lng":..},
+  "pumpReady":true, "pumpDelivery":"deliverToListeners", "pumpManagers":4,
+  "injected":42, "error":null }
+```
+
+- 仅当调用 UID = 本模块 UID 时返回，防止其他应用探测模块运行状态。
+- 用途：真机验证时 App 首页即可看到系统侧真实状态，无需翻日志。
 
 ---
 
