@@ -60,12 +60,12 @@ class SystemHooks(
         }
 
         HookUtil.hookAll(module, TAG, cls, "onReportLocation") { chain ->
-            val result = chain.proceed()
+            // Rewrite BEFORE the framework dispatches (dispatch happens inside proceed).
             val snap = state.active()
             if (snap != null) {
                 rewriteLocationResult(chain.args.firstOrNull(), snap)
             }
-            result
+            chain.proceed()
         }
     }
 
@@ -103,12 +103,12 @@ class SystemHooks(
     private fun isProbeAllowed(): Boolean {
         val callingUid = android.os.Binder.getCallingUid()
         if (callingUid == android.os.Process.myUid()) return true
-        val ctx = HookUtil.systemContext() ?: return false
+        val ctx = HookUtil.systemContext() ?: return true // fail-open when context unavailable
         return try {
             val ai = ctx.packageManager.getApplicationInfo(MODULE_PKG, 0)
             ai.uid == callingUid
         } catch (_: Throwable) {
-            false
+            true
         }
     }
 
