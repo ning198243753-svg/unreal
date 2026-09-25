@@ -38,6 +38,14 @@ class SystemHooks(
     /** Diagnostics for the status probe. */
     private val reportHits = java.util.concurrent.atomic.AtomicLong(0)
     private val rewriteHits = java.util.concurrent.atomic.AtomicLong(0)
+    private val activeNullHits = java.util.concurrent.atomic.AtomicLong(0)
+    private val argNullHits = java.util.concurrent.atomic.AtomicLong(0)
+    private val fieldNullHits = java.util.concurrent.atomic.AtomicLong(0)
+    private val listNullHits = java.util.concurrent.atomic.AtomicLong(0)
+    private val emptyListHits = java.util.concurrent.atomic.AtomicLong(0)
+
+    @Volatile private var lastArgClass: String = "-"
+    @Volatile private var lastListSize: Int = -1
 
     fun attachPump(pump: Pump) {
         this.pump = pump
@@ -70,10 +78,21 @@ class SystemHooks(
             // Capture the manager instance from the live call path.
             pump?.registerManager(chain.thisObject)
             reportHits.incrementAndGet()
+            val arg = chain.args.firstOrNull()
+            if (arg == null) {
+                argNullHits.incrementAndGet()
+            } else {
+                lastArgClass = arg.javaClass.name
+            }
             val snap = state.active()
-            if (snap != null) {
-                if (rewriteLocationResult(chain.args.firstOrNull(), snap)) {
-                    rewriteHits.incrementAndGet()
+            if (snap == null) {
+                activeNullHits.incrementAndGet()
+            } else {
+                when (rewriteLocationResult(arg, snap)) {
+                    1 -> rewriteHits.incrementAndGet()
+                    2 -> fieldNullHits.incrementAndGet()
+                    3 -> listNullHits.incrementAndGet()
+                    4 -> emptyListHits.incrementAndGet()
                 }
             }
             chain.proceed()
@@ -149,6 +168,13 @@ class SystemHooks(
             put("injected", pump?.injectedCount ?: 0L)
             put("reportHits", reportHits.get())
             put("rewriteHits", rewriteHits.get())
+            put("dActiveNull", activeNullHits.get())
+            put("dArgNull", argNullHits.get())
+            put("dFieldNull", fieldNullHits.get())
+            put("dListNull", listNullHits.get())
+            put("dEmptyList", emptyListHits.get())
+            put("lastArgClass", lastArgClass)
+            put("lastListSize", lastListSize)
         }
         val b = Bundle()
         b.putString(Keys.PROBE_EXTRA_STATE, json.toString())
@@ -176,17 +202,19 @@ class SystemHooks(
 
     /**
      * Reflect into `LocationResult.mLocations` (an `ArrayList<Location>` on this ROM).
-     * Returns true if at least one Location was rewritten.
+     * Returns: 1 = rewrote >=1, 2 = field not found, 3 = field not a MutableList, 4 = empty list.
      */
     private fun rewriteLocationResult(
         result: Any?,
         snap: com.moon.location.config.ConfigSnapshot,
-    ): Boolean {
-        if (result == null) return false
+    ): Int {
+        if (result == null) return 2
         return try {
-            val listField = HookUtil.findField(result.javaClass, "mLocations") ?: return false
+            val listField = HookUtil.findField(result.javaClass, "mLocations") ?: return 2
             @Suppress("UNCHECKED_CAST")
-            val list = listField.get(result) as? MutableList<Any?> ?: return false
+            val list = listField.get(result) as? MutableList<Any?> ?: return 3
+            lastListSize = list.size
+            if (list.isEmpty()) return 4
             var changed = false
             for (i in list.indices) {
                 (list[i] as? Location)?.let {
@@ -194,10 +222,10 @@ class SystemHooks(
                     changed = true
                 }
             }
-            changed
+            if (changed) 1 else 4
         } catch (t: Throwable) {
             module.log(Log.WARN, TAG, "rewrite LocationResult failed: ${t.message}")
-            false
+            2
         }
     }
 }

@@ -153,6 +153,13 @@ class MainActivity : Activity() {
             sb.append("　上报=").append(st.optLong("reportHits"))
             sb.append(" 改写=").append(st.optLong("rewriteHits"))
             sb.append("　注入=").append(st.optLong("injected"))
+            sb.append("\n诊断: activeNull=").append(st.optLong("dActiveNull"))
+            sb.append(" argNull=").append(st.optLong("dArgNull"))
+            sb.append(" fieldNull=").append(st.optLong("dFieldNull"))
+            sb.append(" listNull=").append(st.optLong("dListNull"))
+            sb.append(" empty=").append(st.optLong("dEmptyList"))
+            sb.append(" arg=").append(st.optString("lastArgClass").substringAfterLast('.'))
+            sb.append(" size=").append(st.optInt("lastListSize"))
             val err = st.optString("error", "")
             if (err.isNotEmpty() && err != "null") sb.append("　err=").append(err)
         } else {
