@@ -38,6 +38,7 @@ class SystemHooks(
     /** Diagnostics for the status probe. */
     private val reportHits = java.util.concurrent.atomic.AtomicLong(0)
     private val rewriteHits = java.util.concurrent.atomic.AtomicLong(0)
+    private val acceptHits = java.util.concurrent.atomic.AtomicLong(0)
     private val activeNullHits = java.util.concurrent.atomic.AtomicLong(0)
     private val argNullHits = java.util.concurrent.atomic.AtomicLong(0)
     private val fieldNullHits = java.util.concurrent.atomic.AtomicLong(0)
@@ -54,7 +55,85 @@ class SystemHooks(
     fun install() {
         hookLastLocation()
         hookReportLocation()
+        hookAcceptLocationChange()
         module.log(Log.INFO, TAG, "system hooks installed")
+    }
+
+    /**
+     * Android 12+: the per-recipient delivery path.
+     *
+     * `LocationProviderManager$<X>Registration.acceptLocationChange(LocationResult)`
+     * is what actually hands a fix to each app's registration. Rewriting here
+     * (by replacing args[0] with a freshly wrapped spoofed LocationResult) is the
+     * reliable choke point; `onReportLocation` alone can miss apps because the
+     * framework delivers a per-registration result. This is the approach used by
+     * mature modules (AnyDoor/Shadow) and is why system-only hooking is enough.
+     */
+    private fun hookAcceptLocationChange() {
+        val lpm = HookUtil.findClass(
+            loader,
+            "com.android.server.location.provider.LocationProviderManager",
+        ) ?: return
+
+        val classes = LinkedHashSet<Class<*>>()
+        runCatching { classes.addAll(lpm.declaredClasses) }
+        for (simple in arrayOf(
+            "LocationRegistration",
+            "LocationListenerRegistration",
+            "LocationPendingIntentRegistration",
+            "GetCurrentLocationListenerRegistration",
+        )) {
+            HookUtil.findClass(loader, "${lpm.name}\$$simple")?.let { classes.add(it) }
+        }
+
+        var n = 0
+        for (inner in classes) {
+            for (m in inner.declaredMethods) {
+                if (m.name != "acceptLocationChange") continue
+                if (java.lang.reflect.Modifier.isAbstract(m.modifiers)) continue
+                runCatching {
+                    module.hook(m).intercept { chain ->
+                        val result = chain.args.firstOrNull()
+                        val snap = state.active()
+                        if (result != null && snap != null) {
+                            val fake = buildSpoofedResult(result, snap)
+                            if (fake != null) {
+                                acceptHits.incrementAndGet()
+                                val newArgs = chain.args.toTypedArray()
+                                newArgs[0] = fake
+                                chain.proceed(newArgs)
+                            } else {
+                                chain.proceed()
+                            }
+                        } else {
+                            chain.proceed()
+                        }
+                    }
+                    n++
+                }.onFailure {
+                    module.log(Log.WARN, TAG, "hook ${inner.simpleName}.acceptLocationChange failed: ${it.message}")
+                }
+            }
+        }
+        module.log(Log.INFO, TAG, "acceptLocationChange hooks=$n")
+    }
+
+    /** Build a fresh LocationResult of the same class carrying one spoofed fix. */
+    private fun buildSpoofedResult(original: Any, snap: com.moon.location.config.ConfigSnapshot): Any? {
+        val cls = original.javaClass
+        val provider = runCatching {
+            (HookUtil.callMethod(original, "getLastLocation") as? Location)?.provider
+        }.getOrNull() ?: snap.provider
+        val fake = LocationFactory.create(snap, provider)
+        runCatching {
+            HookUtil.findMethod(cls, "wrap", Array<Location>::class.java)
+                ?.invoke(null, arrayOf<Location>(fake))
+        }.getOrNull()?.let { return it }
+        // Fallback: create(List<Location>)
+        return runCatching {
+            HookUtil.findMethod(cls, "create", List::class.java)
+                ?.invoke(null, listOf(fake))
+        }.getOrNull()
     }
 
     /**
@@ -170,6 +249,7 @@ class SystemHooks(
             put("injected", pump?.injectedCount ?: 0L)
             put("reportHits", reportHits.get())
             put("rewriteHits", rewriteHits.get())
+            put("acceptHits", acceptHits.get())
             put("dActiveNull", activeNullHits.get())
             put("dArgNull", argNullHits.get())
             put("dFieldNull", fieldNullHits.get())

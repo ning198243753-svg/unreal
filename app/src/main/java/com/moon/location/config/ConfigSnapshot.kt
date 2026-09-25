@@ -38,23 +38,20 @@ data class ConfigSnapshot(
         put(F_PROVIDER, provider)
     }.toString()
 
-/**
-     * Snapshot is considered fresh when the writer touched it within [leaseMs].
+    /**
+     * A snapshot is active whenever it is explicitly started.
      *
-     * The lease is only a safety net for the case where the app is force-killed
-     * while `started=true` (so spoofing stops on its own). It is intentionally
-     * generous (10 minutes) because the heartbeat may be delayed while the app
-     * is in the background and a too-short lease produced flapping spoofing.
-     * Explicit stop writes `started=false`, which is authoritative.
+     * We deliberately do NOT gate on a heartbeat/lease: on this ROM the app's
+     * heartbeat is throttled once it is backgrounded, which made spoofing flap.
+     * Explicit stop writes `started=false` (and the app clears it in onDestroy
+     * only when the user stopped), so `started` is authoritative.
      */
     fun isFresh(nowWall: Long, nowElapsed: Long, leaseMs: Long = LEASE_MS): Boolean {
-        val dw = nowWall - wall
-        val de = nowElapsed - elapsed
-        return dw in -60_000..leaseMs && de in -60_000..leaseMs
+        return true
     }
 
     fun isActive(nowWall: Long, nowElapsed: Long, leaseMs: Long = LEASE_MS): Boolean =
-        started && isFresh(nowWall, nowElapsed, leaseMs)
+        started
 
     companion object {
         const val SCHEMA = 1
