@@ -27,15 +27,33 @@ provider 上报的唯一汇聚点），因此对所有使用系统定位接口�
   - ✅ 本模块自身（`com.moon.location`）—— 用于「模块已激活」自检
 - 首次启用 / 升级后**完整重启一次**手机。
 
-## 构建
+## 构建（WSL / 无 Android Studio）
 
-本仓库不含 Gradle wrapper 的 `gradle-wrapper.jar`（二进制）。两种方式：
+本项目**不需要 Android Studio**。WSL 里用纯命令行工具链即可构建，全部装在
+`~/android-toolchain`，不需要 sudo、不污染系统。
 
-1. **Android Studio（推荐）**：直接 `Open` 项目目录，IDE 会补全 wrapper 并用本地 SDK 构建。
-2. 命令行：本机装好 JDK 21 与 Android SDK (API 36) 后，在项目根执行
-   `gradle wrapper` 生成 wrapper，再 `./gradlew :app:assembleDebug`。
+```bash
+# 1) 一次性安装 JDK21 + Android SDK(platform-36/build-tools-36) + Gradle 8.9
+scripts/setup-toolchain.sh
 
-产物：`app/build/outputs/apk/debug/app-debug.apk`。
+# 2) 构建 debug APK
+scripts/build.sh                    # 产物 app/build/outputs/apk/debug/app-debug.apk
+scripts/build.sh :app:assembleRelease
+scripts/build.sh clean
+
+# 3) 安装到已连接设备（可选）
+scripts/install.sh
+```
+
+当前 shell 手动激活环境：`source scripts/env.sh`
+
+> 也可用 Android Studio 直接 Open 本目录；SDK 路径写在 `local.properties`（已 gitignore）。
+
+## 提交
+
+```bash
+scripts/commit.sh "M2: 描述"
+```
 
 ## 当前进度（M1）
 
