@@ -22,6 +22,7 @@ class SpoofState(private val module: XposedModule) {
     @Volatile private var lastRead = 0L
     @Volatile private var rawPresent = false
     @Volatile private var error: String? = null
+    @Volatile private var readCount = 0L
     private val lock = Any()
 
     private val prefs by lazy { module.getRemotePreferences(Keys.GROUP) }
@@ -32,12 +33,16 @@ class SpoofState(private val module: XposedModule) {
     /** Last read/parse error, or null. */
     fun lastError(): String? = error
 
+    /** Number of refresh() reads attempted. */
+    fun reads(): Long = readCount
+
     fun refresh() {
         val now = SystemClock.elapsedRealtime()
         if (now - lastRead < MIN_INTERVAL_MS) return
         synchronized(lock) {
             if (SystemClock.elapsedRealtime() - lastRead < MIN_INTERVAL_MS) return
             lastRead = now
+            readCount++
             val raw = try {
                 prefs.getString(Keys.KEY_SNAPSHOT, null)
             } catch (t: Throwable) {

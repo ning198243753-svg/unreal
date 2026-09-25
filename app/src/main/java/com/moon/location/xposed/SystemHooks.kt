@@ -153,6 +153,7 @@ class SystemHooks(
             put("module", "unreal")
             put("sdk", Build.VERSION.SDK_INT)
             put("configReadable", state.configReadable())
+            put("reads", state.reads())
             put("error", state.lastError() ?: JSONObject.NULL)
             put("snapshot", state.current()?.let { snap ->
                 JSONObject().apply {

@@ -160,6 +160,10 @@ class MainActivity : Activity() {
             sb.append(" empty=").append(st.optLong("dEmptyList"))
             sb.append(" arg=").append(st.optString("lastArgClass").substringAfterLast('.'))
             sb.append(" size=").append(st.optInt("lastListSize"))
+            sb.append("\n配置: reads=").append(st.optLong("reads"))
+            sb.append(" readable=").append(st.optBoolean("configReadable"))
+            val e2 = st.optString("error", "")
+            if (e2.isNotEmpty() && e2 != "null") sb.append(" err=").append(e2)
             val err = st.optString("error", "")
             if (err.isNotEmpty() && err != "null") sb.append("　err=").append(err)
         } else {
