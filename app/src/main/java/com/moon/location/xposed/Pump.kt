@@ -168,7 +168,8 @@ class Pump(
             val mgr = managers[provider] ?: continue
             val fix = LocationFactory.create(snap, provider)
             val result = try {
-                wrap.invoke(null, arrayOf<Any?>(arrayOf(fix)))
+                // varargs wrap(Location...) -> pass a strongly-typed Location[]
+                wrap.invoke(null, arrayOf<Location>(fix))
             } catch (t: Throwable) {
                 module.log(Log.WARN, TAG, "wrap failed for $provider: ${t.message}")
                 continue
