@@ -20,6 +20,7 @@ class ModuleEntry : XposedModule() {
 
     @Volatile private var systemState: SpoofState? = null
     @Volatile private var systemPump: Pump? = null
+    @Volatile private var appState: SpoofState? = null
 
     override fun onModuleLoaded(param: ModuleLoadedParam) {
         log(Log.INFO, TAG, "onModuleLoaded: ${param.processName}")
@@ -36,7 +37,14 @@ class ModuleEntry : XposedModule() {
                 log(Log.INFO, TAG, "ModuleStatus probe hooked")
             }.onFailure { log(Log.WARN, TAG, "probe hook failed: ${it.message}") }
         }
-        // App-level hooks land here in M4 (WiFi/cell/GNSS privacy + mock flag).
+        // App-process hooks for target apps (WeChat, AMap, GMS, ...). The module
+        // only loads into processes the user put in the LSPosed scope.
+        try {
+            val st = appState ?: SpoofState(this).also { appState = it }
+            AppHooks(this, param.classLoader, st).install()
+        } catch (t: Throwable) {
+            log(Log.ERROR, TAG, "install app hooks failed for ${param.packageName}: $t")
+        }
     }
 
     override fun onSystemServerStarting(param: SystemServerStartingParam) {
