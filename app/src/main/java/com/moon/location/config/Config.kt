@@ -3,17 +3,24 @@ package com.moon.location.config
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import java.util.concurrent.Executors
 
 /**
  * App-side writer for the cross-process config channel.
  *
- * Writes go into the LSPosed remote-preferences group [Keys.GROUP]. The module
- * running inside system_server reads the same group and applies the snapshot.
+ * The module in system_server reads the snapshot from two places, first non-null wins:
+ *  1. LSPosed remote preferences (group [Keys.GROUP]).
+ *  2. The root-written shared file [Keys.SHARED_SNAPSHOT_PATH]
+ *     (world-readable, shell_data_file) — the reliable channel on this ROM.
  *
- * Kept intentionally tiny: one JSON blob + a monotonic revision counter.
+ * So every write publishes to BOTH channels.
  */
 object Config {
     private const val TAG = "MoonLocation.Config"
+
+    private val io = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "moon-config-writer").apply { isDaemon = true }
+    }
 
     @Volatile
     private var revision: Long = System.currentTimeMillis()
@@ -21,7 +28,7 @@ object Config {
     private fun prefs(ctx: Context) =
         ctx.applicationContext.getSharedPreferences(Keys.GROUP, Context.MODE_PRIVATE)
 
-    /** Persist a new snapshot. Returns the new revision, or -1 on failure. */
+    /** Persist a new snapshot to both channels. Returns the new revision, or -1 on failure. */
     @JvmStatic
     fun write(
         ctx: Context,
@@ -50,21 +57,18 @@ object Config {
             bearing = bearing,
             provider = provider,
         )
+        val json = snap.toJson()
         val ok = prefs(ctx).edit()
-            .putString(Keys.KEY_SNAPSHOT, snap.toJson())
+            .putString(Keys.KEY_SNAPSHOT, json)
             .putInt(Keys.KEY_MODULE_VERSION, 1)
             .commit()
+        publishShared(ctx, json)
         if (!ok) {
-            Log.w(TAG, "failed to persist snapshot")
+            Log.w(TAG, "failed to persist snapshot to prefs")
             return -1
         }
         return next
     }
-
-    /** Read the current snapshot, or null. */
-    @JvmStatic
-    fun read(ctx: Context): ConfigSnapshot? =
-        ConfigSnapshot.fromJson(prefs(ctx).getString(Keys.KEY_SNAPSHOT, null))
 
     /** Refresh only the lease timestamps of the current snapshot (heartbeat). */
     @JvmStatic
@@ -73,15 +77,25 @@ object Config {
         val now = System.currentTimeMillis()
         val next = maxOf(revision + 1, now)
         revision = next
-        prefs(ctx).edit()
-            .putString(
-                Keys.KEY_SNAPSHOT,
-                current.copy(
-                    revision = next,
-                    wall = now,
-                    elapsed = SystemClock.elapsedRealtime(),
-                ).toJson(),
-            )
-            .commit()
+        val json = current.copy(
+            revision = next,
+            wall = now,
+            elapsed = SystemClock.elapsedRealtime(),
+        ).toJson()
+        prefs(ctx).edit().putString(Keys.KEY_SNAPSHOT, json).commit()
+        publishShared(ctx, json)
+    }
+
+    /** Read the current snapshot (app side), or null. */
+    @JvmStatic
+    fun read(ctx: Context): ConfigSnapshot? =
+        ConfigSnapshot.fromJson(prefs(ctx).getString(Keys.KEY_SNAPSHOT, null))
+
+    /** Mirror the JSON to the root-written, world-readable shared file. */
+    private fun publishShared(ctx: Context, json: String) {
+        io.execute {
+            val ok = RootShell.writeSharedFile(Keys.SHARED_SNAPSHOT_PATH, json)
+            if (!ok) Log.w(TAG, "shared file publish failed")
+        }
     }
 }

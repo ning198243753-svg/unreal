@@ -25,4 +25,11 @@ object Keys {
 
     /** Extras key holding the status JSON inside the probe Location. */
     const val PROBE_EXTRA_STATE = "state"
+
+    /**
+     * Root-written shared snapshot file (world-readable, shell_data_file context)
+     * used as the primary cross-process channel when LSPosed remote preferences
+     * read back empty (observed on this ROM).
+     */
+    const val SHARED_SNAPSHOT_PATH = "/data/local/tmp/moon_snapshot.json"
 }

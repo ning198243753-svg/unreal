@@ -162,6 +162,7 @@ class MainActivity : Activity() {
             sb.append(" size=").append(st.optInt("lastListSize"))
             sb.append("\n配置: reads=").append(st.optLong("reads"))
             sb.append(" readable=").append(st.optBoolean("configReadable"))
+            sb.append(" ch=").append(st.optString("channel"))
             val e2 = st.optString("error", "")
             if (e2.isNotEmpty() && e2 != "null") sb.append(" err=").append(e2)
             val err = st.optString("error", "")
