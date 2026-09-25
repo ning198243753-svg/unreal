@@ -152,6 +152,7 @@ class MainActivity : Activity() {
             sb.append("(").append(st.optInt("pumpManagers")).append(")")
             sb.append("　上报=").append(st.optLong("reportHits"))
             sb.append(" 改写=").append(st.optLong("rewriteHits"))
+            sb.append(" 投递=").append(st.optLong("acceptHits"))
             sb.append("　注入=").append(st.optLong("injected"))
             sb.append("\n诊断: activeNull=").append(st.optLong("dActiveNull"))
             sb.append(" argNull=").append(st.optLong("dArgNull"))

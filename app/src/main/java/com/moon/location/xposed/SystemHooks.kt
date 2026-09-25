@@ -204,9 +204,18 @@ class SystemHooks(
                 val result = chain.proceed()
                 val snap = state.active()
                 if (snap != null) {
-                    (result as? Location)?.let { LocationFactory.applyTo(it, snap) }
+                    val loc = result as? Location
+                    if (loc != null) {
+                        LocationFactory.applyTo(loc, snap)
+                        loc
+                    } else {
+                        // Provider has no fix (e.g. indoor GPS returns null). Hand back a
+                        // spoofed fix so the caller never falls back to a cached real one.
+                        LocationFactory.create(snap, provider ?: snap.provider)
+                    }
+                } else {
+                    result
                 }
-                result
             }
         }
     }
